@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: token-resource-test
+spec:
+  selector:
+    matchLabels:
+      app: token-resource-test
+  replicas: 10
+  template:
+    metadata:
+      labels:
+        app: token-resource-test
+    spec:
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            example.com/token: 1
