@@ -29,10 +29,10 @@ var version = "unknown"
 
 type plugin struct {
 	deviceapi.DevicePluginServer
-	resourceCount int
-	socket        string
-	resource      string
-	logger        logr.Logger
+	count    int
+	socket   string
+	resource string
+	logger   logr.Logger
 }
 
 func main() {
@@ -49,27 +49,27 @@ func main() {
 
 	logger := createLogger(*lvl)
 	logger.Info("Start", "version", version, "resource", *resource, "count", *count)
-	ctx, _ := signal.NotifyContext(
-		context.Background(), syscall.SIGINT, syscall.SIGTERM)
-
 	if *count < 1 {
 		logger.Error(
 			fmt.Errorf("Value to low"), "Resource count", "count", *count)
 		return
 	}
 
+	ctx, _ := signal.NotifyContext(
+		context.Background(), syscall.SIGINT, syscall.SIGTERM)
+
 	p := &plugin{
-		resourceCount: *count,
-		socket:        *socket,
-		resource:      *resource,
-		logger:        logger,
+		count:    *count,
+		socket:   filepath.Join(deviceapi.DevicePluginPath, *socket),
+		resource: *resource,
+		logger:   logger,
 	}
 
 	for ctx.Err() == nil {
 		// Listen must work. Exit immediately if it's not
 		// (e.g. permission denied).
-		socket := filepath.Join(deviceapi.DevicePluginPath, p.socket)
-		l, err := net.Listen("unix", socket)
+		_ = os.Remove(p.socket) // There may be an old file lingering
+		l, err := net.Listen("unix", p.socket)
 		if err != nil {
 			logger.Error(err, "Listen")
 			return
@@ -86,7 +86,7 @@ func main() {
 		ch := make(chan error)
 
 		go func() {
-			ch <- monitorSocket(ctxc, socket)
+			ch <- monitorSocket(ctxc, p.socket)
 		}()
 		go func() {
 			ch <- p.serve(ctxc, l)
@@ -98,9 +98,9 @@ func main() {
 			// ctx.Err() is non-nil, so quit the normal way
 		case err = <-ch:
 			cancel()
-			<-ch           // Wait for the error from the "other" component
+			<-ch // Wait for the error from the "other" component
 			close(ch)
-			_ = l.Close()  // May be closed already
+			_ = l.Close() // May be closed already
 			logger.Error(err, "Will try again")
 		}
 	}
@@ -168,7 +168,7 @@ func monitorSocket(ctx context.Context, socket string) error {
 		if _, err := os.Lstat(socket); err != nil {
 			return err
 		}
-		if err := sleep(ctx, time.Second * 2); err != nil {
+		if err := sleep(ctx, time.Second*2); err != nil {
 			return err
 		}
 	}
@@ -184,7 +184,7 @@ func (p *plugin) GetDevicePluginOptions(
 func (p *plugin) ListAndWatch(
 	_ *deviceapi.Empty, stream deviceapi.DevicePlugin_ListAndWatchServer) error {
 	res := new(deviceapi.ListAndWatchResponse)
-	for i := 0; i < p.resourceCount; i++ {
+	for i := 0; i < p.count; i++ {
 		res.Devices = append(res.Devices, &deviceapi.Device{
 			ID: fmt.Sprintf("item-%d", i), Health: deviceapi.Healthy})
 	}
@@ -193,7 +193,7 @@ func (p *plugin) ListAndWatch(
 		p.logger.Error(err, "Send responce")
 		return err
 	}
-	
+
 	p.logger.V(1).Info("ListAndWatch waiting...")
 	select {}
 }
